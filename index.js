@@ -41,11 +41,11 @@ app.post("/user", async (req, res) => {
   if (await userModel.exists({ username: username })) {
     res.status(300).json("tài khoản đã tồn tại");
   } else {
-    userModel.create({
+    await userModel.create({
       username: username,
       password: password,
     });
-    res.status(200).join("tạo tài khoản thành công");
+    res.status(200).json("tạo tài khoản thành công");
   }
 });
 
