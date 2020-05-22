@@ -10,6 +10,7 @@
   "author": "phong",
   "license": "ISC",
   "dependencies": {
+    "body-parser": "^1.19.0",
     "ent": "^2.2.0",
     "express": "^4.15.2",
     "mongodb": "^3.5.7",

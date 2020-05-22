@@ -1,4 +1,7 @@
-var app = require("express")();
+var express = require("express");
+var app = express();
+var bodyParser = require("body-parser");
+app.use(bodyParser.json());
 var http = require("http").Server(app);
 var io = require("socket.io")(http);
 var ent = require("ent"); // Blocks HTML characters (security equivalent to htmlentities in PHP)
@@ -8,14 +11,13 @@ const userSchema = require("./model/user.schema");
 let userModel = null;
 
 async function connectionDB() {
-    await
-        mongoose.connect(MONGO_URL, {
-            useNewUrlParser: true,
-            useUnifiedTopology: true,
-            useFindAndModify: false
-        });
+  await mongoose.connect(MONGO_URL, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+    useFindAndModify: false,
+  });
 
-    userModel = mongoose.model("user", userSchema);
+  userModel = mongoose.model("user", userSchema);
 }
 
 const dpHost = "127.0.0.1";
@@ -25,109 +27,114 @@ const MONGO_URL = `mongodb://${dpHost}:${dbPort}/${dbName}`;
 
 connectionDB();
 
-
-app.get("/user", function (req, res) {
-
-});
+app.get("/user", function (req, res) {});
 
 app.post("/user", async (req, res) => {
-    await userModel.create(req.query);
-    const username = req.query.username;
-    const password = req.query.password;
-    if (username == null || password == null) {
-        res.status(404).json("dữ liệu đầu vào không đúng");
-    }
+  console.log("Got body:", req.body);
+  const username = req.body.username;
+  const password = req.body.password;
 
-    if (await userModel.exists({username: username})) {
-        res.status(300).json("tài khoản đã tồn tại");
-    } else {
+  if (username == null || password == null) {
+    res.status(404).json("dữ liệu đầu vào không đúng");
+  }
 
-        userModel.create({
-            username: username,
-            password: password
-        })
-        res.status(200).join("tạo tài khoản thành công");
-    }
-
+  if (await userModel.exists({ username: username })) {
+    res.status(300).json("tài khoản đã tồn tại");
+  } else {
+    userModel.create({
+      username: username,
+      password: password,
+    });
+    res.status(200).join("tạo tài khoản thành công");
+  }
 });
 
 app.post("/login", async (req, res) => {
-    const username = req.query.username;
-    const password = req.query.password;
-    if (username == null || password == null) {
-        res.status(404).json("dữ liệu đầu vào không đúng");
-    }
-    if (await userModel.exists({
-        username: username,
-        password: password
-    })) {
-        res.status(200).json("Đănh nhập thành công");
-    } else {
-        res.status(300).json("sai mật khẩu hoặc tài khoản");
-    }
-
-
+  console.log("login");
+  const username = req.query.username;
+  const password = req.query.password;
+  if (username == null || password == null) {
+    res.status(404).json("dữ liệu đầu vào không đúng");
+  }
+  if (
+    await userModel.exists({
+      username: username,
+      password: password,
+    })
+  ) {
+    res.status(200).json("Đănh nhập thành công");
+  } else {
+    res.status(300).json("sai mật khẩu hoặc tài khoản");
+  }
 });
 
 app.get("/test", (req, res) => {
-    console.log("test");
+  console.log("test");
+  res.status(200).json("test");
 });
 
 app.get("/", function (req, res) {
-    res.sendFile(__dirname + "/index.html");
+  res.sendFile(__dirname + "/index.html");
 });
 
 app.get("/error", function (req, res) {
-    res.sendFile(__dirname + "/error.html");
+  res.sendFile(__dirname + "/error.html");
 });
 var allClients = [];
 io.on("connection", (socket, username) => {
+  allClients.push(socket);
+  // socket.emit("clients", allClients.length);
 
-    allClients.push(socket);
-    // socket.emit("clients", allClients.length);
+  socket.on("disconnect", () => {
+    console.log("Got disconnect!");
+    var i = allClients.indexOf(socket);
+    allClients.splice(i, 1);
+    socket.emit("clients", allClients.length);
+  });
 
-    socket.on('disconnect', () => {
-        console.log('Got disconnect!');
-        var i = allClients.indexOf(socket);
-        allClients.splice(i, 1);
-        socket.emit("clients", allClients.length);
-    });
+  // When the username is received it’s stored as a session variable and informs the other people
 
-    // When the username is received it’s stored as a session variable and informs the other people
+  socket.on("attack", (data) => {
+    console.log(data);
+    io.emit("attack", data);
+    // socket.to(data.roomId).emit("attack", data);
+  });
 
-    socket.on("attack", (data) => {
-        console.log(data);
-        io.emit("attack", data);
-    });
+  socket.on("waitingRoom", (data) => {
+    console.log(data);
+    socket.emit("rooms", io.sockets.adapter.rooms);
+  });
 
-    socket.on("waitingRoom", (data) => {
-        console.log(data);
-        socket.emit("rooms", io.sockets.adapter.rooms);
-    });
-
-    socket.on("joinRoom", (roomId) => {
-        console.log("room id " + roomId);
-        if (socket.adapter.rooms[roomId]) {
-            if (socket.adapter.rooms[roomId].length >= 2) {
-                socket.emit("joinRoom", {
-                    status: false,
-                    msg: "phòng đầy"
-                });
-                return;
-            }
-        }
-        socket.join(roomId);
-        //validate lengt socket in room
+  socket.on("joinRoom", (roomId) => {
+    console.log("room id " + roomId);
+    if (socket.adapter.rooms[roomId]) {
+      if (socket.adapter.rooms[roomId].length >= 2) {
         socket.emit("joinRoom", {
-            status: true,
-            msg: "Vào phòng thành công"
+          status: false,
+          msg: "phòng đầy",
         });
-        io.emit("rooms", io.sockets.adapter.rooms);
-    })
+        return;
+      }
+    }
+    socket.join(roomId);
+    //validate lengt socket in room
+    socket.emit("joinRoom", {
+      status: true,
+      msg: "Vào phòng thành công",
+      roomId: roomId,
+    });
+    io.emit("rooms", io.sockets.adapter.rooms);
+  });
+
+  socket.on("leaveRoom", (roomId) => {
+    console.log("leaveRoom - " + roomId);
+    socket.leave(roomId);
+    io.emit("rooms", io.sockets.adapter.rooms);
+  });
 });
 
 http.listen(3000, function () {
-    console.log("listening on *:3000");
+  console.log("listening on *:3000");
 });
 
 //var app = require('express')(),
