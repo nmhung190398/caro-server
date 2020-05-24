@@ -27,7 +27,18 @@ const MONGO_URL = `mongodb://${dpHost}:${dbPort}/${dbName}`;
 
 connectionDB();
 
-app.get("/user", function (req, res) {});
+app.get("/user", async (req, res) => {
+  const username = req.query.username;
+  const user = await userModel.findOne({
+    username: username,
+  });
+  res.status(200).json(user);
+});
+
+app.get("/bang-xep-hang", async (req, res) => {
+  const users = await userModel.find().limit(5).sort({ totalWin: "desc" });
+  res.status(200).json(users);
+});
 
 app.post("/user", async (req, res) => {
   console.log("Got body:", req.body);
@@ -44,6 +55,7 @@ app.post("/user", async (req, res) => {
     await userModel.create({
       username: username,
       password: password,
+      totalWin: 0,
     });
     res.status(200).json("tạo tài khoản thành công");
   }
@@ -54,17 +66,22 @@ app.post("/login", async (req, res) => {
   const username = req.query.username;
   const password = req.query.password;
   if (username == null || password == null) {
-    res.status(404).json("dữ liệu đầu vào không đúng");
+    res.status(404).json(null);
   }
   if (
-    await userModel.exists({
+    (user = await userModel.exists({
       username: username,
       password: password,
-    })
+    }))
   ) {
-    res.status(200).json("Đănh nhập thành công");
+    res.status(200).json(
+      await userModel.findOne({
+        username: username,
+        password: password,
+      })
+    );
   } else {
-    res.status(300).json("sai mật khẩu hoặc tài khoản");
+    res.status(300).json(null);
   }
 });
 
@@ -95,18 +112,60 @@ io.on("connection", (socket, username) => {
   // When the username is received it’s stored as a session variable and informs the other people
 
   socket.on("attack", (data) => {
-    console.log(data);
+    console.log("attack");
     io.emit("attack", data);
     // socket.to(data.roomId).emit("attack", data);
   });
 
   socket.on("waitingRoom", (data) => {
-    console.log(data);
+    console.log("waitingRoom");
     socket.emit("rooms", io.sockets.adapter.rooms);
   });
 
+  const getSocketInRoom = (room) => {
+    const listSocket = [];
+    try {
+      Object.keys(room.sockets).forEach((key) => {
+        const value = room.sockets[key];
+        const socketInRoom = io.sockets.connected[key];
+        if (value) {
+          listSocket.push({
+            id: socketInRoom.id,
+            username: socketInRoom.username,
+            isSanSang: socketInRoom.isSanSang,
+          });
+        }
+      });
+    } catch (e) {}
+    return listSocket;
+  };
+
+  socket.on("sanSang", (strData) => {
+    console.log("sanSang");
+    const data = JSON.parse(strData);
+    socket.isSanSang = data.isSanSang;
+    // const tmp = socket.adapter.rooms[data.roomId].sockets[socket.id];
+    // console.log(tmp);
+    const room = socket.adapter.rooms[data.roomId];
+    const isRun = false;
+    let coutSanSang = 0;
+    socketInRoom = getSocketInRoom(room);
+    io.to(data.roomId).emit("socketInRoom", socketInRoom);
+    socketInRoom.forEach((item) => {
+      if (item.isSanSang) {
+        coutSanSang++;
+      }
+    });
+    if (coutSanSang == 2) {
+      const playRun = socketInRoom[getRandomInt(socketInRoom.length)];
+      console.log("play run : ", playRun);
+      io.to(data.roomId).emit("batDau", playRun);
+    }
+  });
+
   socket.on("joinRoom", (roomId) => {
-    console.log("room id " + roomId);
+    console.log("joinRoom, Room ID ", roomId);
+    socket.isSanSang = false;
     if (socket.adapter.rooms[roomId]) {
       if (socket.adapter.rooms[roomId].length >= 2) {
         socket.emit("joinRoom", {
@@ -128,10 +187,42 @@ io.on("connection", (socket, username) => {
 
   socket.on("leaveRoom", (roomId) => {
     console.log("leaveRoom - " + roomId);
+    socket.isSanSang = false;
     socket.leave(roomId);
+    console.log(io.sockets.adapter.rooms);
     io.emit("rooms", io.sockets.adapter.rooms);
   });
+
+  socket.on("newPlayer", (username) => {
+    console.log("newPlayer", username);
+    socket.username = username;
+  });
+
+  socket.on("joinRoomDone", (roomId) => {
+    console.log("joinRoomDone L ", roomId);
+    const room = socket.adapter.rooms[roomId];
+    io.to(roomId).emit("socketInRoom", getSocketInRoom(room));
+  });
+
+  socket.on("winer", async (strData) => {
+    console.log("winer : " + strData);
+    const data = JSON.parse(strData);
+    const winer = await userModel.findOne({
+      username: data.winer,
+    });
+    if (winer["totalWin"]) {
+      winer["totalWin"] = 1;
+    } else {
+      winer["totalWin"]++;
+    }
+    await winer.save();
+    io.to(data.roomId).emit("endGame", data);
+  });
 });
+
+function getRandomInt(max) {
+  return Math.floor(Math.random() * Math.floor(max));
+}
 
 http.listen(3000, function () {
   console.log("listening on *:3000");
