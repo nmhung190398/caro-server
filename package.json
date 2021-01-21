@@ -17,6 +17,6 @@
     "mongoose": "^5.9.11",
     "mysql": "^2.18.1",
     "node-persist": "0.0.8",
-    "socket.io": "^1.7.3"
+    "socket.io": "^2.4.0"
   }
 }
